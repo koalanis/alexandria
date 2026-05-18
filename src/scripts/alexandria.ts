@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { FirstPersonControls } from 'three/addons/controls/FirstPersonControls.js';
 import { loadObj } from './utils';
-import { getLibrary, addBook, subscribe, parseUrlParam, type BookEntry } from './library';
+import { getLibrary, addBook, clearLibrary, subscribe, parseUrlParam, type BookEntry } from './library';
 import { getBooksByIsbns } from './api';
-import { seedIfEmpty } from './seed';
+import { seedIfEmpty, seedConfig } from './seed';
 import { getBookTexture, makeBookMaterial, disposeTextures } from './textures';
 import { sceneConfig, spineScale } from './config';
 import { showCarousel, updateCarousel, hideCarousel } from './carousel';
@@ -333,7 +333,16 @@ function registerEvents(rc: RenderContext, state: SceneState): void {
 // --- URL hydration ---
 
 async function hydrateFromUrl(): Promise<void> {
-  const param = new URLSearchParams(window.location.search).get('books');
+  const params = new URLSearchParams(window.location.search);
+
+  if (params.has('seed')) {
+    clearLibrary();
+    seedConfig.books.forEach(addBook);
+    history.replaceState(null, '', window.location.pathname);
+    return;
+  }
+
+  const param = params.get('books');
   if (!param) return;
 
   const isbns = parseUrlParam(param);
@@ -344,7 +353,6 @@ async function hydrateFromUrl(): Promise<void> {
     fetched.forEach(addBook);
   }
 
-  // Clear the param from the URL bar after hydration
   history.replaceState(null, '', window.location.pathname);
 }
 

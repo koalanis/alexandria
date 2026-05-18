@@ -59,6 +59,12 @@ export function addBook(entry: BookEntry): boolean {
   return true;
 }
 
+export function clearLibrary(): void {
+  const lib = defaultLibrary();
+  saveLibrary(lib);
+  notify(lib);
+}
+
 export function removeBook(id: string): void {
   const lib = getLibrary();
   const updated: Library = { ...lib, books: lib.books.filter(b => b.id !== id) };
