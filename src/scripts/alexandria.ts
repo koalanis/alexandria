@@ -346,12 +346,9 @@ async function hydrateFromUrl(): Promise<void> {
   if (!param) return;
 
   const isbns = parseUrlParam(param);
-  const known = new Set(getLibrary().books.map(b => b.id));
-  const missing = isbns.filter(isbn => !known.has(isbn));
-  if (missing.length > 0) {
-    const fetched = await getBooksByIsbns(missing);
-    fetched.forEach(addBook);
-  }
+  clearLibrary();
+  const fetched = await getBooksByIsbns(isbns);
+  fetched.forEach(addBook);
 
   history.replaceState(null, '', window.location.pathname);
 }
