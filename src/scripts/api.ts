@@ -111,6 +111,37 @@ export async function getBookByIsbn(isbn: string): Promise<BookEntry | null> {
   return olToBookEntry(isbn, entry, description);
 }
 
+// Fetches pages + description for a batch of ISBNs without overwriting existing entries.
+// Returns a map of isbn → partial patch (only fields that came back non-empty).
+export async function enrichBooks(isbns: string[]): Promise<Map<string, Partial<BookEntry>>> {
+  const bibkeys = isbns.map(i => `ISBN:${i}`).join(',');
+  const url = `${OL_BASE}/api/books?bibkeys=${encodeURIComponent(bibkeys)}&format=json&jscmd=data`;
+  const results = new Map<string, Partial<BookEntry>>();
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return results;
+    const data = await res.json() as Record<string, OLBookData>;
+
+    for (const [key, bookData] of Object.entries(data)) {
+      const isbn = key.replace('ISBN:', '');
+      const patch: Partial<BookEntry> = {};
+
+      if (bookData.number_of_pages) patch.pages = bookData.number_of_pages;
+
+      const worksKey = bookData.works?.[0]?.key;
+      if (worksKey) {
+        const description = await fetchWorksDescription(worksKey);
+        if (description) patch.description = description;
+      }
+
+      if (Object.keys(patch).length > 0) results.set(isbn, patch);
+    }
+  } catch { /* network failure — return what we have */ }
+
+  return results;
+}
+
 export async function getBooksByIsbns(isbns: string[]): Promise<BookEntry[]> {
   const results = await Promise.allSettled(isbns.map(getBookByIsbn));
   return results

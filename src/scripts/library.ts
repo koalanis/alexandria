@@ -65,6 +65,21 @@ export function clearLibrary(): void {
   notify(lib);
 }
 
+// Applies patches to multiple books in a single write + notify.
+export function patchBooks(patches: Map<string, Partial<BookEntry>>): void {
+  if (patches.size === 0) return;
+  const lib = getLibrary();
+  const updated: Library = {
+    ...lib,
+    books: lib.books.map(b => {
+      const p = patches.get(b.id);
+      return p ? { ...b, ...p } : b;
+    }),
+  };
+  saveLibrary(updated);
+  notify(updated);
+}
+
 export function removeBook(id: string): void {
   const lib = getLibrary();
   const updated: Library = { ...lib, books: lib.books.filter(b => b.id !== id) };

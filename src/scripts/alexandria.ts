@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { FirstPersonControls } from 'three/addons/controls/FirstPersonControls.js';
 import { loadObj } from './utils';
-import { getLibrary, addBook, clearLibrary, subscribe, parseUrlParam, type BookEntry } from './library';
-import { getBooksByIsbns } from './api';
+import { getLibrary, addBook, clearLibrary, patchBooks, subscribe, parseUrlParam, type BookEntry } from './library';
+import { getBooksByIsbns, enrichBooks } from './api';
 import { seedIfEmpty, seedConfig } from './seed';
 import { getBookTexture, makeBookMaterial, disposeTextures } from './textures';
 import { sceneConfig, spineScale } from './config';
@@ -400,6 +400,14 @@ export async function threeMain(): Promise<void> {
   seedIfEmpty();
   await syncShelf(getLibrary().books, state);
   subscribe(library => syncShelf(library.books, state));
+
+  // Enrich books missing pages/description — fires after shelf renders, patches in one update.
+  const unenriched = getLibrary().books.filter(
+    b => !b.description && /^\d{10,13}$/.test(b.id)
+  );
+  if (unenriched.length > 0) {
+    enrichBooks(unenriched.map(b => b.id)).then(patches => patchBooks(patches));
+  }
 
   renderer.setAnimationLoop(() => {
     const delta = rc.clock.getDelta();
