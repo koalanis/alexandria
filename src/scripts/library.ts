@@ -1,6 +1,5 @@
 export type BookEntry = {
-  id: string;       // Google Books volume ID
-  isbn?: string;    // ISBN-13 preferred, ISBN-10 fallback
+  id: string;       // ISBN-13 (primary key); falls back to Google Books volume ID when no ISBN
   title: string;
   authors: string[];
   coverUrl: string; // Empty string means no cover available

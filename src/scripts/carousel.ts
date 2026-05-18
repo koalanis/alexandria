@@ -75,6 +75,12 @@ const CSS = `
   font-size: 13px;
   opacity: 0.52;
 }
+#carousel-isbn {
+  font-size: 12px;
+  opacity: 0.36;
+  margin-top: 4px;
+  letter-spacing: 0.04em;
+}
 #carousel-counter {
   position: absolute;
   bottom: 32px;
@@ -119,6 +125,7 @@ export function showCarousel(
         <div id="carousel-title"></div>
         <div id="carousel-author"></div>
         <div id="carousel-year"></div>
+        <div id="carousel-isbn"></div>
         <div id="carousel-counter"></div>
       </div>
     `;
@@ -144,6 +151,7 @@ export function updateCarousel(
   q('carousel-title').textContent = entry.title;
   q('carousel-author').textContent = entry.authors.join(', ');
   q('carousel-year').textContent = entry.year ? String(entry.year) : '';
+  q('carousel-isbn').textContent = /^\d{10,13}$/.test(entry.id) ? `ISBN ${entry.id}` : '';
   q('carousel-counter').textContent = `${index + 1} / ${total}`;
   (q('carousel-prev') as HTMLButtonElement).style.opacity = index === 0 ? '0.25' : '1';
   (q('carousel-next') as HTMLButtonElement).style.opacity =

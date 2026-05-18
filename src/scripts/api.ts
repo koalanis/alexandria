@@ -1,6 +1,8 @@
 import type { BookEntry } from './library';
 
-const BASE = 'https://www.googleapis.com/books/v1';
+// --- Google Books (search) ---
+
+const GB_BASE = 'https://www.googleapis.com/books/v1';
 
 type GBVolume = {
   id: string;
@@ -8,68 +10,84 @@ type GBVolume = {
     title?: string;
     authors?: string[];
     publishedDate?: string;
-    imageLinks?: {
-      thumbnail?: string;
-      smallThumbnail?: string;
-    };
+    imageLinks?: { thumbnail?: string; smallThumbnail?: string };
     industryIdentifiers?: Array<{ type: string; identifier: string }>;
   };
 };
 
-type GBSearchResponse = {
-  totalItems: number;
-  items?: GBVolume[];
-};
+type GBSearchResponse = { totalItems: number; items?: GBVolume[] };
 
-function toBookEntry(vol: GBVolume): BookEntry {
+function gbToBookEntry(vol: GBVolume): BookEntry {
   const info = vol.volumeInfo;
-
   const isbn =
     info.industryIdentifiers?.find(i => i.type === 'ISBN_13')?.identifier ??
     info.industryIdentifiers?.find(i => i.type === 'ISBN_10')?.identifier;
-
-  // Google Books sometimes returns HTTP — upgrade to HTTPS
-  const rawCover =
-    info.imageLinks?.thumbnail ?? info.imageLinks?.smallThumbnail ?? '';
-  const coverUrl = rawCover.replace(/^http:\/\//, 'https://');
-
+  const rawCover = info.imageLinks?.thumbnail ?? info.imageLinks?.smallThumbnail ?? '';
   const parsedYear = parseInt(info.publishedDate?.slice(0, 4) ?? '', 10);
-  const year = isNaN(parsedYear) ? undefined : parsedYear;
-
   return {
-    id: vol.id,
-    isbn,
+    id: isbn ?? vol.id,
     title: info.title ?? 'Unknown Title',
     authors: info.authors ?? [],
-    coverUrl,
-    year,
+    coverUrl: rawCover.replace(/^http:\/\//, 'https://'),
+    year: isNaN(parsedYear) ? undefined : parsedYear,
     addedAt: Date.now(),
   };
 }
 
+export class ApiError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
 export async function searchBooks(query: string): Promise<BookEntry[]> {
-  const url = `${BASE}/volumes?q=${encodeURIComponent(query)}&maxResults=10`;
+  const url = `${GB_BASE}/volumes?q=${encodeURIComponent(query)}&maxResults=10`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Google Books search failed: ${res.status}`);
+  if (!res.ok) throw new ApiError(res.status, `Google Books search failed: ${res.status}`);
   const data: GBSearchResponse = await res.json();
-  return (data.items ?? []).map(toBookEntry);
+  return (data.items ?? []).map(gbToBookEntry);
 }
 
-export async function getBookById(volumeId: string): Promise<BookEntry | null> {
-  const url = `${BASE}/volumes/${encodeURIComponent(volumeId)}`;
+// --- Open Library (ISBN hydration) ---
+
+const OL_BASE = 'https://openlibrary.org';
+
+type OLBookData = {
+  title?: string;
+  authors?: Array<{ name: string }>;
+  publish_date?: string;
+  cover?: { medium?: string; large?: string; small?: string };
+};
+
+function olToBookEntry(isbn: string, data: OLBookData): BookEntry {
+  const coverUrl =
+    data.cover?.medium ??
+    data.cover?.large ??
+    `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg`;
+  const parsedYear = parseInt(data.publish_date?.slice(-4) ?? '', 10);
+  return {
+    id: isbn,
+    title: data.title ?? 'Unknown Title',
+    authors: (data.authors ?? []).map(a => a.name),
+    coverUrl,
+    year: isNaN(parsedYear) ? undefined : parsedYear,
+    addedAt: Date.now(),
+  };
+}
+
+export async function getBookByIsbn(isbn: string): Promise<BookEntry | null> {
+  const key = `ISBN:${isbn}`;
+  const url = `${OL_BASE}/api/books?bibkeys=${encodeURIComponent(key)}&format=json&jscmd=data`;
   const res = await fetch(url);
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Google Books fetch failed: ${res.status}`);
-  const vol: GBVolume = await res.json();
-  return toBookEntry(vol);
+  if (!res.ok) return null;
+  const data = await res.json() as Record<string, OLBookData>;
+  const entry = data[key];
+  if (!entry) return null;
+  return olToBookEntry(isbn, entry);
 }
 
-export async function getBooksByIds(volumeIds: string[]): Promise<BookEntry[]> {
-  const results = await Promise.allSettled(volumeIds.map(getBookById));
+export async function getBooksByIsbns(isbns: string[]): Promise<BookEntry[]> {
+  const results = await Promise.allSettled(isbns.map(getBookByIsbn));
   return results
-    .filter(
-      (r): r is PromiseFulfilledResult<BookEntry> =>
-        r.status === 'fulfilled' && r.value !== null
-    )
+    .filter((r): r is PromiseFulfilledResult<BookEntry> =>
+      r.status === 'fulfilled' && r.value !== null)
     .map(r => r.value);
 }

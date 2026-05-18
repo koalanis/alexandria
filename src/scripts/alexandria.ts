@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { FirstPersonControls } from 'three/addons/controls/FirstPersonControls.js';
 import { loadObj } from './utils';
-import { getLibrary, subscribe, type BookEntry } from './library';
+import { getLibrary, addBook, subscribe, toUrlParam, parseUrlParam, type BookEntry } from './library';
+import { getBooksByIsbns } from './api';
 import { seedIfEmpty } from './seed';
 import { getBookTexture, makeBookMaterial, disposeTextures } from './textures';
 import { showCarousel, updateCarousel, hideCarousel } from './carousel';
@@ -333,6 +334,27 @@ function registerEvents(rc: RenderContext, state: SceneState): void {
   });
 }
 
+// --- URL hydration ---
+
+async function hydrateFromUrl(): Promise<void> {
+  const param = new URLSearchParams(window.location.search).get('books');
+  if (!param) return;
+
+  const isbns = parseUrlParam(param);
+  const known = new Set(getLibrary().books.map(b => b.id));
+  const missing = isbns.filter(isbn => !known.has(isbn));
+  if (missing.length === 0) return;
+
+  const fetched = await getBooksByIsbns(missing);
+  fetched.forEach(addBook);
+}
+
+function syncUrl(): void {
+  const param = toUrlParam(getLibrary());
+  const url = param ? `?books=${param}` : window.location.pathname;
+  history.replaceState(null, '', url);
+}
+
 // --- Entry point ---
 
 export async function threeMain(): Promise<void> {
@@ -376,9 +398,14 @@ export async function threeMain(): Promise<void> {
   };
 
   registerEvents(rc, state);
+  await hydrateFromUrl();
   seedIfEmpty();
+  syncUrl();
   await syncShelf(getLibrary().books, state);
-  subscribe(library => syncShelf(library.books, state));
+  subscribe(library => {
+    syncUrl();
+    syncShelf(library.books, state);
+  });
 
   renderer.setAnimationLoop(() => {
     const delta = rc.clock.getDelta();
