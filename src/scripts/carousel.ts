@@ -14,6 +14,7 @@ const CSS = `
   font-family: Georgia, serif;
   color: #fff;
   user-select: none;
+  z-index: 10;
 }
 #carousel-overlay button {
   pointer-events: all;

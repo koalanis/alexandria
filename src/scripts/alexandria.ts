@@ -7,6 +7,12 @@ import { seedIfEmpty } from './seed';
 import { getBookTexture, makeBookMaterial } from './textures';
 import { showCarousel, updateCarousel, hideCarousel } from './carousel';
 
+// --- Top-level config ---
+
+export const sceneConfig = {
+  backgroundColor: '#13151a',
+};
+
 // --- Constants ---
 
 const BOOKS_PER_ROW  = 20;
@@ -284,7 +290,7 @@ function setupLights(scene: THREE.Scene): void {
     light.position.set(x, y, z);
     scene.add(light);
   }
-  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+  scene.add(new THREE.AmbientLight(0xffffff, 1.4));
 }
 
 function handleRaycasting(rc: RenderContext, state: SceneState): void {
@@ -329,8 +335,10 @@ function registerEvents(rc: RenderContext, state: SceneState): void {
 // --- Entry point ---
 
 export async function threeMain(): Promise<void> {
-  const renderer = new THREE.WebGLRenderer({ alpha: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(new THREE.Color(sceneConfig.backgroundColor));
+  document.body.style.background = sceneConfig.backgroundColor;
   document.body.appendChild(renderer.domElement);
 
   const scene  = new THREE.Scene();
