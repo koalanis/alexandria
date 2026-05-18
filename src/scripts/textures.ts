@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { BookEntry } from './library';
-import { textureConfig } from './config';
+import { textureConfig, FAKE_DESCRIPTION, spineScale } from './config';
 
 const TEX = 512;
 
@@ -73,35 +73,37 @@ function drawWrapped(
 }
 
 function paintBack(ctx: CanvasRenderingContext2D, entry: BookEntry): void {
-  if (!entry.description) return;
+  const text = entry.description ?? (textureConfig.fakeDescriptions ? FAKE_DESCRIPTION : null);
+  if (!text) return;
 
   ctx.fillStyle = 'rgba(0,0,0,0.40)';
   ctx.fillRect(BACK.x, BACK.y, BACK.w, BACK.h);
 
   const maxChars = 420;
-  const text = entry.description.length > maxChars
-    ? entry.description.slice(0, maxChars).trimEnd() + '…'
-    : entry.description;
+  const clipped = text.length > maxChars ? text.slice(0, maxChars).trimEnd() + '…' : text;
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   ctx.fillStyle = 'rgba(255,255,255,0.80)';
   ctx.font = '8px Georgia, serif';
-  drawWrapped(ctx, text, BACK.x + 10, BACK.y + 16, BACK.w - 20, 12, 18);
+  drawWrapped(ctx, clipped, BACK.x + 10, BACK.y + 16, BACK.w - 20, 12, 18);
 }
 
 function paintSpine(
   ctx: CanvasRenderingContext2D,
   entry: BookEntry,
-  _baseColor: string
+  _baseColor: string,
+  scale: number
 ): void {
-  // Semi-transparent scrim so white title text is legible over the original texture.
   ctx.fillStyle = 'rgba(0,0,0,0.32)';
   ctx.fillRect(SPINE.x, SPINE.y, SPINE.w, SPINE.h);
 
   ctx.save();
   ctx.translate(SPINE.x + SPINE.w / 2, SPINE.y + SPINE.h / 2);
   ctx.rotate(-Math.PI / 2);
+  // Compensate for mesh.scale.y: the em-height of rotated text maps to the
+  // spine-width (OBJ Y) axis, so it gets stretched by scale. Invert here.
+  ctx.scale(1, 1 / scale);
   ctx.fillStyle = 'rgba(255,255,255,0.90)';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -199,6 +201,7 @@ export async function getBookTexture(entry: BookEntry): Promise<THREE.Texture> {
   if (cache.has(key)) return cache.get(key)!;
 
   const baseColor = textureConfig.colorize ? pickColor(entry.id) : textureConfig.defaultColor;
+  const scale = spineScale(entry.pages);
   const canvas = document.createElement('canvas');
   canvas.width = TEX;
   canvas.height = TEX;
@@ -214,7 +217,7 @@ export async function getBookTexture(entry: BookEntry): Promise<THREE.Texture> {
   }
 
   paintBack(ctx, entry);
-  paintSpine(ctx, entry, baseColor);
+  paintSpine(ctx, entry, baseColor, scale);
 
   if (entry.coverUrl) {
     try {

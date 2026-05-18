@@ -12,8 +12,9 @@ import { showCarousel, updateCarousel, hideCarousel } from './carousel';
 // --- Constants ---
 
 const BOOKS_PER_ROW  = 20;
-const SPACING_X      = 1.555;
 const SPACING_Y      = 5.88;
+const SPINE_HALF     = 0.741;  // half of OBJ Y range (1.481 total) at scale=1
+const SHELF_GAP      = 0.05;   // world-unit gap between adjacent books
 const CAROUSEL_CAM_Z = 18;  // camera Z in carousel (shelf is at Z=0)
 const BOOK_POP_Z     = 3;   // how far the active book steps forward
 const T_ENTER        = 0.6; // transition duration seconds (enter/exit)
@@ -72,6 +73,7 @@ type RenderContext = {
 type SceneState = {
   bookGeometry:    THREE.BufferGeometry;
   shelfGroup:      THREE.Group;
+  shelfPositions:  THREE.Vector3[];
   hoveredMesh:     THREE.Mesh | null;
   viewState:       'shelf' | 'carousel';
   carouselIndex:   number;
@@ -82,20 +84,25 @@ type SceneState = {
 
 // --- Position helpers ---
 
-function shelfPosition(index: number): THREE.Vector3 {
-  const col = index % BOOKS_PER_ROW;
-  const row = Math.floor(index / BOOKS_PER_ROW);
-  return new THREE.Vector3(col * SPACING_X, -row * SPACING_Y, 0);
+function computeShelfPositions(entries: BookEntry[]): THREE.Vector3[] {
+  const positions: THREE.Vector3[] = [];
+  let x = 0, col = 0, row = 0;
+  for (const entry of entries) {
+    if (col >= BOOKS_PER_ROW) { col = 0; row++; x = 0; }
+    const halfW = SPINE_HALF * spineScale(entry.pages);
+    positions.push(new THREE.Vector3(x + halfW, -row * SPACING_Y, 0));
+    x += halfW * 2 + SHELF_GAP;
+    col++;
+  }
+  return positions;
 }
 
-function carouselCamPos(bookIndex: number): THREE.Vector3 {
-  const p = shelfPosition(bookIndex);
-  return new THREE.Vector3(p.x, p.y, CAROUSEL_CAM_Z);
+function carouselCamPos(pos: THREE.Vector3): THREE.Vector3 {
+  return new THREE.Vector3(pos.x, pos.y, CAROUSEL_CAM_Z);
 }
 
-function bookPoppedPos(bookIndex: number): THREE.Vector3 {
-  const p = shelfPosition(bookIndex);
-  return new THREE.Vector3(p.x, p.y, BOOK_POP_Z);
+function bookPoppedPos(pos: THREE.Vector3): THREE.Vector3 {
+  return new THREE.Vector3(pos.x, pos.y, BOOK_POP_Z);
 }
 
 function easeInOut(t: number): number {
@@ -113,12 +120,12 @@ function windowed(t: number, start: number, end: number): number {
 
 async function buildBookMesh(
   entry: BookEntry,
-  index: number,
+  position: THREE.Vector3,
   geometry: THREE.BufferGeometry
 ): Promise<THREE.Mesh> {
   const texture = await getBookTexture(entry);
   const mesh = new THREE.Mesh(geometry, makeBookMaterial(texture));
-  mesh.position.copy(shelfPosition(index));
+  mesh.position.copy(position);
   mesh.quaternion.copy(qInitial);
   mesh.scale.set(1, spineScale(entry.pages), 1);
   mesh.userData.bookId = entry.id;
@@ -131,8 +138,9 @@ async function syncShelf(entries: BookEntry[], state: SceneState): Promise<void>
   state.shelfGroup.clear();
   state.hoveredMesh = null;
   state.cameraAnim = null;
+  state.shelfPositions = computeShelfPositions(entries);
   const meshes = await Promise.all(
-    entries.map((entry, i) => buildBookMesh(entry, i, state.bookGeometry))
+    entries.map((entry, i) => buildBookMesh(entry, state.shelfPositions[i], state.bookGeometry))
   );
   meshes.forEach(m => state.shelfGroup.add(m));
 }
@@ -216,12 +224,12 @@ function enterCarousel(index: number, rc: RenderContext, state: SceneState): voi
     onNext: () => navigateCarousel(1, rc, state),
   });
 
-  // translation first half (book pops out), rotation second half (cover faces viewer)
+  const pos = state.shelfPositions[index];
   startAnim(
     rc, state,
-    carouselCamPos(index), qCameraForward,
+    carouselCamPos(pos), qCameraForward,
     T_ENTER,
-    mesh, bookPoppedPos(index), qFacing,
+    mesh, bookPoppedPos(pos), qFacing,
     [0, 0.5], [0.5, 1],
   );
 }
@@ -233,20 +241,21 @@ function exitCarousel(state: SceneState, rc?: RenderContext): void {
   // Snap active book back to shelf — or animate it if we have rc
   const mesh = getBookMesh(state, state.carouselIndex);
 
+  const homePos = state.shelfPositions[state.carouselIndex];
+
   if (!rc) {
-    if (mesh) {
-      mesh.position.copy(shelfPosition(state.carouselIndex));
+    if (mesh && homePos) {
+      mesh.position.copy(homePos);
       mesh.quaternion.copy(qInitial);
     }
     return;
   }
 
-  // rotation first half (cover rotates back), translation second half (slides back into shelf)
   startAnim(
     rc, state,
     state.savedCameraPos, state.savedCameraQuat,
     T_ENTER,
-    mesh, shelfPosition(state.carouselIndex), qInitial,
+    mesh, homePos, qInitial,
     [0.5, 1], [0, 0.5],
   );
 }
@@ -257,10 +266,9 @@ function navigateCarousel(dir: -1 | 1, rc: RenderContext, state: SceneState): vo
   const next  = state.carouselIndex + dir;
   if (next < 0 || next >= books.length) return;
 
-  // Snap old book back to shelf immediately
   const old = getBookMesh(state, state.carouselIndex);
   if (old) {
-    old.position.copy(shelfPosition(state.carouselIndex));
+    old.position.copy(state.shelfPositions[state.carouselIndex]);
     old.quaternion.copy(qInitial);
   }
 
@@ -268,11 +276,12 @@ function navigateCarousel(dir: -1 | 1, rc: RenderContext, state: SceneState): vo
   updateCarousel(books[next], next, books.length);
 
   const mesh = getBookMesh(state, next);
+  const pos  = state.shelfPositions[next];
   startAnim(
     rc, state,
-    carouselCamPos(next), qCameraForward,
+    carouselCamPos(pos), qCameraForward,
     T_NAV,
-    mesh, bookPoppedPos(next), qFacing,
+    mesh, bookPoppedPos(pos), qFacing,
   );
 }
 
@@ -387,6 +396,7 @@ export async function threeMain(): Promise<void> {
   const state: SceneState = {
     bookGeometry,
     shelfGroup,
+    shelfPositions:  [],
     hoveredMesh:     null,
     viewState:       'shelf',
     carouselIndex:   0,
