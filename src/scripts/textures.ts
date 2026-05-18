@@ -170,6 +170,16 @@ export const textureConfig = {
   defaultColor: '#3D2B1F',
 };
 
+// --- Base texture (page edges / mesh detail from the original OBJ texture) ---
+
+let baseImg: HTMLImageElement | null = null;
+
+async function getBaseImg(): Promise<HTMLImageElement> {
+  if (baseImg) return baseImg;
+  baseImg = await loadImage('/texture_0.png');
+  return baseImg;
+}
+
 // --- Cache & public API ---
 
 const cache = new Map<string, THREE.Texture>();
@@ -184,9 +194,14 @@ export async function getBookTexture(entry: BookEntry): Promise<THREE.Texture> {
   canvas.height = TEX;
   const ctx = canvas.getContext('2d')!;
 
-  // Fill the whole canvas so seams on top/bottom/edge faces aren't black
-  ctx.fillStyle = baseColor;
-  ctx.fillRect(0, 0, TEX, TEX);
+  // Draw original mesh texture first — preserves hand-painted page edges.
+  // Cover regions (FRONT/SPINE/BACK) are painted on top of this base.
+  try {
+    ctx.drawImage(await getBaseImg(), 0, 0, TEX, TEX);
+  } catch {
+    ctx.fillStyle = '#e8e0d0';
+    ctx.fillRect(0, 0, TEX, TEX);
+  }
 
   paintBack(ctx, baseColor);
   paintSpine(ctx, entry, baseColor);

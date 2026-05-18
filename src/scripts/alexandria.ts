@@ -4,13 +4,13 @@ import { FirstPersonControls } from 'three/addons/controls/FirstPersonControls.j
 import { loadObj } from './utils';
 import { getLibrary, subscribe, type BookEntry } from './library';
 import { seedIfEmpty } from './seed';
-import { getBookTexture, makeBookMaterial } from './textures';
+import { getBookTexture, makeBookMaterial, disposeTextures } from './textures';
 import { showCarousel, updateCarousel, hideCarousel } from './carousel';
 
 // --- Top-level config ---
 
 export const sceneConfig = {
-  backgroundColor: '#13151a',
+  backgroundColor: '#f5f0e8',
 };
 
 // --- Constants ---
@@ -130,6 +130,7 @@ async function buildBookMesh(
 
 async function syncShelf(entries: BookEntry[], state: SceneState): Promise<void> {
   if (state.viewState === 'carousel') exitCarousel(state);
+  disposeTextures();
   state.shelfGroup.clear();
   state.hoveredMesh = null;
   state.cameraAnim = null;
