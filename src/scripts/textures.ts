@@ -163,6 +163,13 @@ async function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
+// --- Config ---
+
+export const textureConfig = {
+  colorize: false,
+  defaultColor: '#3D2B1F',
+};
+
 // --- Cache & public API ---
 
 const cache = new Map<string, THREE.Texture>();
@@ -171,7 +178,7 @@ export async function getBookTexture(entry: BookEntry): Promise<THREE.Texture> {
   const key = entry.coverUrl || entry.id;
   if (cache.has(key)) return cache.get(key)!;
 
-  const baseColor = pickColor(entry.id);
+  const baseColor = textureConfig.colorize ? pickColor(entry.id) : textureConfig.defaultColor;
   const canvas = document.createElement('canvas');
   canvas.width = TEX;
   canvas.height = TEX;
