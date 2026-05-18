@@ -54,10 +54,31 @@ type OLBookData = {
   title?: string;
   authors?: Array<{ name: string }>;
   publish_date?: string;
-  cover?: { medium?: string; large?: string; small?: string };
+  cover?: { small?: string; medium?: string; large?: string };
+  number_of_pages?: number;
+  works?: Array<{ key: string }>;
+  excerpts?: Array<{ text: string }>;
+  notes?: string | { value: string };
 };
 
-function olToBookEntry(isbn: string, data: OLBookData): BookEntry {
+type OLWork = {
+  description?: string | { value: string };
+};
+
+async function fetchWorksDescription(key: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(`${OL_BASE}${key}.json`);
+    if (!res.ok) return undefined;
+    const work: OLWork = await res.json();
+    const d = work.description;
+    if (!d) return undefined;
+    return typeof d === 'string' ? d : d.value;
+  } catch {
+    return undefined;
+  }
+}
+
+function olToBookEntry(isbn: string, data: OLBookData, description?: string): BookEntry {
   const coverUrl =
     data.cover?.medium ??
     data.cover?.large ??
@@ -69,19 +90,25 @@ function olToBookEntry(isbn: string, data: OLBookData): BookEntry {
     authors: (data.authors ?? []).map(a => a.name),
     coverUrl,
     year: isNaN(parsedYear) ? undefined : parsedYear,
+    pages: data.number_of_pages,
+    description,
     addedAt: Date.now(),
   };
 }
 
 export async function getBookByIsbn(isbn: string): Promise<BookEntry | null> {
-  const key = `ISBN:${isbn}`;
-  const url = `${OL_BASE}/api/books?bibkeys=${encodeURIComponent(key)}&format=json&jscmd=data`;
+  const bibkey = `ISBN:${isbn}`;
+  const url = `${OL_BASE}/api/books?bibkeys=${encodeURIComponent(bibkey)}&format=json&jscmd=data`;
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json() as Record<string, OLBookData>;
-  const entry = data[key];
+  const entry = data[bibkey];
   if (!entry) return null;
-  return olToBookEntry(isbn, entry);
+
+  const worksKey = entry.works?.[0]?.key;
+  const description = worksKey ? await fetchWorksDescription(worksKey) : undefined;
+
+  return olToBookEntry(isbn, entry, description);
 }
 
 export async function getBooksByIsbns(isbns: string[]): Promise<BookEntry[]> {

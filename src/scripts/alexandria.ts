@@ -2,17 +2,12 @@ import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { FirstPersonControls } from 'three/addons/controls/FirstPersonControls.js';
 import { loadObj } from './utils';
-import { getLibrary, addBook, subscribe, toUrlParam, parseUrlParam, type BookEntry } from './library';
+import { getLibrary, addBook, subscribe, parseUrlParam, type BookEntry } from './library';
 import { getBooksByIsbns } from './api';
 import { seedIfEmpty } from './seed';
 import { getBookTexture, makeBookMaterial, disposeTextures } from './textures';
+import { sceneConfig, spineScale } from './config';
 import { showCarousel, updateCarousel, hideCarousel } from './carousel';
-
-// --- Top-level config ---
-
-export const sceneConfig = {
-  backgroundColor: '#f5f0e8',
-};
 
 // --- Constants ---
 
@@ -125,6 +120,7 @@ async function buildBookMesh(
   const mesh = new THREE.Mesh(geometry, makeBookMaterial(texture));
   mesh.position.copy(shelfPosition(index));
   mesh.quaternion.copy(qInitial);
+  mesh.scale.set(1, spineScale(entry.pages), 1);
   mesh.userData.bookId = entry.id;
   return mesh;
 }
@@ -343,16 +339,13 @@ async function hydrateFromUrl(): Promise<void> {
   const isbns = parseUrlParam(param);
   const known = new Set(getLibrary().books.map(b => b.id));
   const missing = isbns.filter(isbn => !known.has(isbn));
-  if (missing.length === 0) return;
+  if (missing.length > 0) {
+    const fetched = await getBooksByIsbns(missing);
+    fetched.forEach(addBook);
+  }
 
-  const fetched = await getBooksByIsbns(missing);
-  fetched.forEach(addBook);
-}
-
-function syncUrl(): void {
-  const param = toUrlParam(getLibrary());
-  const url = param ? `?books=${param}` : window.location.pathname;
-  history.replaceState(null, '', url);
+  // Clear the param from the URL bar after hydration
+  history.replaceState(null, '', window.location.pathname);
 }
 
 // --- Entry point ---
@@ -400,12 +393,8 @@ export async function threeMain(): Promise<void> {
   registerEvents(rc, state);
   await hydrateFromUrl();
   seedIfEmpty();
-  syncUrl();
   await syncShelf(getLibrary().books, state);
-  subscribe(library => {
-    syncUrl();
-    syncShelf(library.books, state);
-  });
+  subscribe(library => syncShelf(library.books, state));
 
   renderer.setAnimationLoop(() => {
     const delta = rc.clock.getDelta();

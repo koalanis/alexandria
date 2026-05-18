@@ -1,10 +1,12 @@
 export type BookEntry = {
-  id: string;       // ISBN-13 (primary key); falls back to Google Books volume ID when no ISBN
+  id: string;           // ISBN-13 (primary key); falls back to Google Books volume ID when no ISBN
   title: string;
   authors: string[];
-  coverUrl: string; // Empty string means no cover available
+  coverUrl: string;     // Empty string means no cover available
   year?: number;
-  addedAt: number;  // Unix ms timestamp
+  pages?: number;
+  description?: string;
+  addedAt: number;      // Unix ms timestamp
 };
 
 export type Library = {

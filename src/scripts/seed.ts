@@ -24,7 +24,13 @@ const SEED_BOOKS: BookEntry[] = [
   { id: '9780679728740', title: 'Child of God',                         authors: ['Cormac McCarthy'],         coverUrl: 'https://covers.openlibrary.org/b/isbn/9780679728740-M.jpg', year: 1973, addedAt: 0 },
 ];
 
+export const seedConfig = {
+  enabled: true,
+  books: SEED_BOOKS,
+};
+
 export function seedIfEmpty(): void {
+  if (!seedConfig.enabled) return;
   if (getLibrary().books.length > 0) return;
-  SEED_BOOKS.forEach(addBook);
+  seedConfig.books.forEach(addBook);
 }

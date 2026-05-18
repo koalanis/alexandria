@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { BookEntry } from './library';
+import { textureConfig } from './config';
 
 const TEX = 512;
 
@@ -71,23 +72,37 @@ function drawWrapped(
   }
 }
 
-function paintBack(ctx: CanvasRenderingContext2D, baseColor: string): void {
-  ctx.fillStyle = shade(baseColor, 8);
+function paintBack(ctx: CanvasRenderingContext2D, entry: BookEntry): void {
+  if (!entry.description) return;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.40)';
   ctx.fillRect(BACK.x, BACK.y, BACK.w, BACK.h);
+
+  const maxChars = 420;
+  const text = entry.description.length > maxChars
+    ? entry.description.slice(0, maxChars).trimEnd() + '…'
+    : entry.description;
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(255,255,255,0.80)';
+  ctx.font = '8px Georgia, serif';
+  drawWrapped(ctx, text, BACK.x + 10, BACK.y + 16, BACK.w - 20, 12, 18);
 }
 
 function paintSpine(
   ctx: CanvasRenderingContext2D,
   entry: BookEntry,
-  baseColor: string
+  _baseColor: string
 ): void {
-  ctx.fillStyle = shade(baseColor, -20);
+  // Semi-transparent scrim so white title text is legible over the original texture.
+  ctx.fillStyle = 'rgba(0,0,0,0.32)';
   ctx.fillRect(SPINE.x, SPINE.y, SPINE.w, SPINE.h);
 
   ctx.save();
   ctx.translate(SPINE.x + SPINE.w / 2, SPINE.y + SPINE.h / 2);
   ctx.rotate(-Math.PI / 2);
-  ctx.fillStyle = 'rgba(255,255,255,0.82)';
+  ctx.fillStyle = 'rgba(255,255,255,0.90)';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = 'bold 11px Georgia, serif';
@@ -165,11 +180,6 @@ async function loadImage(url: string): Promise<HTMLImageElement> {
 
 // --- Config ---
 
-export const textureConfig = {
-  colorize: false,
-  defaultColor: '#3D2B1F',
-};
-
 // --- Base texture (page edges / mesh detail from the original OBJ texture) ---
 
 let baseImg: HTMLImageElement | null = null;
@@ -203,7 +213,7 @@ export async function getBookTexture(entry: BookEntry): Promise<THREE.Texture> {
     ctx.fillRect(0, 0, TEX, TEX);
   }
 
-  paintBack(ctx, baseColor);
+  paintBack(ctx, entry);
   paintSpine(ctx, entry, baseColor);
 
   if (entry.coverUrl) {
