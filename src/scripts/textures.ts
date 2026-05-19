@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { BookEntry } from './library';
-import { textureConfig, FAKE_DESCRIPTION, spineScale } from './config';
+import { textureConfig, FAKE_DESCRIPTION } from './config';
 
 const TEX = 512;
 
@@ -89,29 +89,10 @@ function paintBack(ctx: CanvasRenderingContext2D, entry: BookEntry): void {
   drawWrapped(ctx, clipped, BACK.x + 10, BACK.y + 16, BACK.w - 20, 12, 18);
 }
 
-function paintSpine(
-  ctx: CanvasRenderingContext2D,
-  entry: BookEntry,
-  _baseColor: string,
-  scale: number
-): void {
+function paintSpine(ctx: CanvasRenderingContext2D): void {
+  // Dark scrim only — text is rendered as a separate billboard child mesh.
   ctx.fillStyle = 'rgba(0,0,0,0.32)';
   ctx.fillRect(SPINE.x, SPINE.y, SPINE.w, SPINE.h);
-
-  ctx.save();
-  ctx.translate(SPINE.x + SPINE.w / 2, SPINE.y + SPINE.h / 2);
-  ctx.rotate(-Math.PI / 2);
-  // Compensate for mesh.scale.y: the em-height of rotated text maps to the
-  // spine-width (OBJ Y) axis, so it gets stretched by scale. Invert here.
-  ctx.scale(1, 1 / scale);
-  ctx.fillStyle = 'rgba(255,255,255,0.90)';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = 'bold 11px Georgia, serif';
-  const label =
-    entry.title.length > 30 ? entry.title.slice(0, 30) + '…' : entry.title;
-  ctx.fillText(label, 0, 0, SPINE.h - 12);
-  ctx.restore();
 }
 
 function paintFallbackFront(
@@ -201,7 +182,6 @@ export async function getBookTexture(entry: BookEntry): Promise<THREE.Texture> {
   if (cache.has(key)) return cache.get(key)!;
 
   const baseColor = textureConfig.colorize ? pickColor(entry.id) : textureConfig.defaultColor;
-  const scale = spineScale(entry.pages);
   const canvas = document.createElement('canvas');
   canvas.width = TEX;
   canvas.height = TEX;
@@ -217,7 +197,7 @@ export async function getBookTexture(entry: BookEntry): Promise<THREE.Texture> {
   }
 
   paintBack(ctx, entry);
-  paintSpine(ctx, entry, baseColor, scale);
+  paintSpine(ctx);
 
   if (entry.coverUrl) {
     try {

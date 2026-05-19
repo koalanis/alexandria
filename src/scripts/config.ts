@@ -11,7 +11,14 @@ export const sceneConfig = {
 export const textureConfig = {
   colorize: false,
   defaultColor: '#3D2B1F',
+  fakeDescriptions: false,
 };
+
+export const FAKE_DESCRIPTION =
+  'Lorem ipsum dolor sit amet, consectetur adipiscing elit. ' +
+  'Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ' +
+  'Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. ' +
+  'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum.';
 
 // --- Book form factors ---
 

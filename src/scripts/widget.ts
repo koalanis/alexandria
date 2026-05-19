@@ -1,4 +1,4 @@
-import { searchBooks } from './api';
+import { searchBooks, ApiError } from './api';
 import { addBook, removeBook, getLibrary, subscribe, type BookEntry } from './library';
 
 const CSS = `
@@ -242,8 +242,12 @@ async function runSearch(query: string): Promise<void> {
     currentResults = await searchBooks(query);
     renderResults();
     setStatus(currentResults.length === 0 ? 'No results' : '');
-  } catch {
-    setStatus('Search failed');
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 429) {
+      setStatus('Rate limited — wait a moment');
+    } else {
+      setStatus('Search failed');
+    }
   }
 }
 
@@ -285,14 +289,14 @@ function buildUI(): void {
   searchEl.addEventListener('input', () => {
     if (debounceTimer) clearTimeout(debounceTimer);
     const q = searchEl.value.trim();
-    if (!q) {
+    if (q.length < 3) {
       currentResults = [];
       renderResults();
-      setStatus('Type to search');
+      setStatus(q.length === 0 ? 'Type to search' : 'Keep typing…');
       return;
     }
     setStatus('Searching…');
-    debounceTimer = setTimeout(() => runSearch(q), 320);
+    debounceTimer = setTimeout(() => runSearch(q), 600);
   });
 }
 
