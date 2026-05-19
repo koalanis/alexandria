@@ -123,7 +123,7 @@ export async function enrichBooks(isbns: string[]): Promise<Map<string, Partial<
     if (!res.ok) return results;
     const data = await res.json() as Record<string, OLBookData>;
 
-    for (const [key, bookData] of Object.entries(data)) {
+    await Promise.all(Object.entries(data).map(async ([key, bookData]) => {
       const isbn = key.replace('ISBN:', '');
       const patch: Partial<BookEntry> = {};
 
@@ -136,7 +136,7 @@ export async function enrichBooks(isbns: string[]): Promise<Map<string, Partial<
       }
 
       if (Object.keys(patch).length > 0) results.set(isbn, patch);
-    }
+    }));
   } catch { /* network failure — return what we have */ }
 
   return results;

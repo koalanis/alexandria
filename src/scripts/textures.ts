@@ -107,29 +107,20 @@ function paintFallbackFront(
   ctx.lineWidth = 2;
   ctx.strokeRect(FRONT.x + 7, FRONT.y + 7, FRONT.w - 14, FRONT.h - 14);
 
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
+  const cx   = FRONT.x + FRONT.w / 2;
+  const maxW = FRONT.w - 28;
 
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
-  ctx.font = 'bold 18px Georgia, serif';
-  drawWrapped(
-    ctx,
-    entry.title,
-    FRONT.x + FRONT.w / 2,
-    FRONT.y + Math.round(FRONT.h * 0.28),
-    FRONT.w - 16,
-    22
-  );
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle    = 'rgba(255,255,255,0.95)';
+  ctx.font         = 'bold 28px Georgia, serif';
+  drawWrapped(ctx, entry.title, cx, FRONT.y + 50, maxW, 34, 3);
 
   if (entry.authors.length > 0) {
-    ctx.fillStyle = 'rgba(255,255,255,0.62)';
-    ctx.font = '13px Georgia, serif';
-    ctx.fillText(
-      entry.authors[0],
-      FRONT.x + FRONT.w / 2,
-      FRONT.y + Math.round(FRONT.h * 0.72),
-      FRONT.w - 16
-    );
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle    = 'rgba(255,255,255,0.65)';
+    ctx.font         = 'italic 18px Georgia, serif';
+    ctx.fillText(entry.authors[0], cx, FRONT.y + FRONT.h - 20, maxW);
   }
 }
 
@@ -151,12 +142,37 @@ function paintCoverImage(
   ctx.restore();
 }
 
+function sampleAverageColor(img: HTMLImageElement): [number, number, number] | null {
+  try {
+    const size = 16;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const cx = c.getContext('2d')!;
+    cx.drawImage(img, 0, 0, size, size);
+    const { data } = cx.getImageData(0, 0, size, size);
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] > 128) { r += data[i]; g += data[i + 1]; b += data[i + 2]; n++; }
+    }
+    return n > 0 ? [r / n, g / n, b / n] : null;
+  } catch {
+    return null;
+  }
+}
+
 async function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = reject;
+    const timer = setTimeout(() => reject(new Error('timeout')), 6000);
+    const done = (fn: () => void) => { clearTimeout(timer); fn(); };
+    img.onload = () => done(() => {
+      // OpenLibrary returns a tiny placeholder when no cover exists.
+      // Treat anything under 50px as "no cover".
+      if (img.naturalWidth < 50 || img.naturalHeight < 50) reject(new Error('placeholder'));
+      else resolve(img);
+    });
+    img.onerror = (e) => done(() => reject(e));
     img.src = url;
   });
 }
@@ -178,17 +194,22 @@ async function getBaseImg(): Promise<HTMLImageElement> {
 const cache = new Map<string, THREE.Texture>();
 
 export async function getBookTexture(entry: BookEntry): Promise<THREE.Texture> {
-  const key = entry.coverUrl || entry.id;
+  const key = entry.id;
   if (cache.has(key)) return cache.get(key)!;
 
   const baseColor = textureConfig.colorize ? pickColor(entry.id) : textureConfig.defaultColor;
+
+  // Load cover image up front so its average color can tint the base texture.
+  let coverImg: HTMLImageElement | null = null;
+  if (entry.coverUrl) {
+    try { coverImg = await loadImage(entry.coverUrl); } catch { /* no cover */ }
+  }
+
   const canvas = document.createElement('canvas');
   canvas.width = TEX;
   canvas.height = TEX;
   const ctx = canvas.getContext('2d')!;
 
-  // Draw original mesh texture first — preserves hand-painted page edges.
-  // Cover regions (FRONT/SPINE/BACK) are painted on top of this base.
   try {
     ctx.drawImage(await getBaseImg(), 0, 0, TEX, TEX);
   } catch {
@@ -196,16 +217,21 @@ export async function getBookTexture(entry: BookEntry): Promise<THREE.Texture> {
     ctx.fillRect(0, 0, TEX, TEX);
   }
 
+  // Tint page edges with the cover's average color.
+  if (coverImg) {
+    const color = sampleAverageColor(coverImg);
+    if (color) {
+      const [r, g, b] = color;
+      ctx.fillStyle = `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},0.82)`;
+      ctx.fillRect(0, 0, TEX, TEX);
+    }
+  }
+
   paintBack(ctx, entry);
   paintSpine(ctx);
 
-  if (entry.coverUrl) {
-    try {
-      const img = await loadImage(entry.coverUrl);
-      paintCoverImage(ctx, img);
-    } catch {
-      paintFallbackFront(ctx, entry, baseColor);
-    }
+  if (coverImg) {
+    paintCoverImage(ctx, coverImg);
   } else {
     paintFallbackFront(ctx, entry, baseColor);
   }
@@ -223,4 +249,13 @@ export function makeBookMaterial(texture: THREE.Texture): THREE.MeshStandardMate
 export function disposeTextures(): void {
   cache.forEach(t => t.dispose());
   cache.clear();
+}
+
+// Evict specific books so their textures are regenerated on next render.
+// Use when a book's description changes (back-cover text updates).
+export function invalidateBookTextures(ids: Iterable<string>): void {
+  for (const id of ids) {
+    const t = cache.get(id);
+    if (t) { t.dispose(); cache.delete(id); }
+  }
 }

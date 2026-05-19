@@ -45,8 +45,10 @@ export const FORM_FACTORS: Record<FormFactor, {
 };
 
 export const bookConfig = {
-  formFactor:   'trade' as FormFactor,
-  defaultPages: 320,
+  formFactor:    'trade' as FormFactor,
+  defaultPages:  320,
+  minSpineScale: 0.25,
+  maxSpineScale: 3.8,
 };
 
 // Returns a Y-axis scale factor for the book mesh.
@@ -55,5 +57,6 @@ export function spineScale(pages: number | undefined): number {
   const ff   = FORM_FACTORS[bookConfig.formFactor];
   const p    = Math.min(1500, Math.max(50, pages ?? bookConfig.defaultPages));
   const base = Math.min(1500, Math.max(50, bookConfig.defaultPages));
-  return (p / ff.pagesPerInch) / (base / ff.pagesPerInch);
+  const scale = (p / ff.pagesPerInch) / (base / ff.pagesPerInch);
+  return Math.min(bookConfig.maxSpineScale, Math.max(bookConfig.minSpineScale, scale));
 }

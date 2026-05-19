@@ -5,7 +5,7 @@ import { loadObj } from './utils';
 import { getLibrary, addBook, clearLibrary, patchBooks, subscribe, parseUrlParam, type BookEntry } from './library';
 import { getBooksByIsbns, enrichBooks } from './api';
 import { seedIfEmpty, seedConfig } from './seed';
-import { getBookTexture, makeBookMaterial, disposeTextures } from './textures';
+import { getBookTexture, makeBookMaterial, disposeTextures, invalidateBookTextures } from './textures';
 import { sceneConfig, spineScale } from './config';
 import { showCarousel, updateCarousel, hideCarousel } from './carousel';
 
@@ -19,6 +19,13 @@ const CAROUSEL_CAM_Z = 18;  // camera Z in carousel (shelf is at Z=0)
 const BOOK_POP_Z     = 3;   // how far the active book steps forward
 const T_ENTER        = 0.6; // transition duration seconds (enter/exit)
 const T_NAV          = 0.3; // transition duration seconds (prev/next)
+
+// Approximate world-space dimensions of the book mesh at qInitial.
+// Tweak if shelf boards / back panel look misaligned.
+const BOOK_HEIGHT = 5.5;   // world Y, bottom to top of a standing book
+const BOOK_DEPTH  = 3.2;   // world Z, spine face to back cover
+
+const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.9, metalness: 0.0 });
 
 // --- Quaternions ---
 
@@ -73,6 +80,7 @@ type RenderContext = {
 type SceneState = {
   bookGeometry:    THREE.BufferGeometry;
   shelfGroup:      THREE.Group;
+  bookcaseGroup:   THREE.Group | null;
   shelfPositions:  THREE.Vector3[];
   hoveredMesh:     THREE.Mesh | null;
   viewState:       'shelf' | 'carousel';
@@ -145,6 +153,68 @@ function makeSpineLabel(entry: BookEntry, parentScale: number): THREE.Mesh {
   return label;
 }
 
+function buildBookcase(
+  entries: BookEntry[],
+  positions: THREE.Vector3[],
+): THREE.Group {
+  const group   = new THREE.Group();
+  const SHELF_T = 0.22;   // horizontal board thickness
+  const SIDE_T  = 0.28;   // vertical side panel thickness
+  const BACK_T  = 0.12;   // back panel thickness
+  const LIP     = 0.15;   // how much shelf protrudes in front of spine face
+  const DROP    = 0.30;   // gap between estimated book bottom and shelf top surface
+
+  const numRows = Math.ceil(entries.length / BOOKS_PER_ROW);
+
+  // Widest row drives the overall case width.
+  let maxRowWidth = 0;
+  for (let r = 0; r < numRows; r++) {
+    const lastIdx = Math.min((r + 1) * BOOKS_PER_ROW, entries.length) - 1;
+    if (positions[lastIdx]) {
+      const hw = SPINE_HALF * spineScale(entries[lastIdx].pages);
+      maxRowWidth = Math.max(maxRowWidth, positions[lastIdx].x + hw);
+    }
+  }
+
+  const caseW    = maxRowWidth + SIDE_T * 2;
+  const shelfD   = BOOK_DEPTH + LIP;                   // depth of boards
+  const centerX  = maxRowWidth / 2;                    // center of books in X
+  const centerZ  = (LIP - BOOK_DEPTH) / 2;            // boards centered between spine face and back
+
+  // Vertical extents for the whole case
+  const topY    =  BOOK_HEIGHT / 2 + DROP + SHELF_T;
+  const bottomY = -(numRows - 1) * SPACING_Y - BOOK_HEIGHT / 2 - DROP - SHELF_T;
+  const caseH   = topY - bottomY;
+  const midY    = (topY + bottomY) / 2;
+
+  // Horizontal shelf boards (one above each row + one below last row)
+  const boardGeo = new THREE.BoxGeometry(caseW, SHELF_T, shelfD);
+  for (let r = 0; r <= numRows; r++) {
+    const board = new THREE.Mesh(boardGeo, woodMat);
+    const by = r === 0
+      ? BOOK_HEIGHT / 2 + DROP + SHELF_T / 2                              // top board
+      : -(r - 1) * SPACING_Y - BOOK_HEIGHT / 2 - DROP - SHELF_T / 2;    // bottom of row r-1
+    board.position.set(centerX, by, centerZ);
+    group.add(board);
+  }
+
+  // Side panels
+  const sideGeo = new THREE.BoxGeometry(SIDE_T, caseH, shelfD);
+  const leftPanel  = new THREE.Mesh(sideGeo, woodMat);
+  const rightPanel = new THREE.Mesh(sideGeo, woodMat);
+  leftPanel.position.set(-SIDE_T / 2, midY, centerZ);
+  rightPanel.position.set(maxRowWidth + SIDE_T / 2, midY, centerZ);
+  group.add(leftPanel, rightPanel);
+
+  // Back panel
+  const backGeo   = new THREE.BoxGeometry(caseW, caseH, BACK_T);
+  const backPanel = new THREE.Mesh(backGeo, woodMat);
+  backPanel.position.set(centerX, midY, -BOOK_DEPTH - BACK_T / 2);
+  group.add(backPanel);
+
+  return group;
+}
+
 async function buildBookMesh(
   entry: BookEntry,
   position: THREE.Vector3,
@@ -156,7 +226,8 @@ async function buildBookMesh(
   mesh.quaternion.copy(qInitial);
   const scale = spineScale(entry.pages);
   mesh.scale.set(1, scale, 1);
-  mesh.userData.bookId = entry.id;
+  mesh.userData.bookId   = entry.id;
+  mesh.userData.shelfPos = position.clone();
   mesh.add(makeSpineLabel(entry, scale));
   return mesh;
 }
@@ -168,7 +239,13 @@ async function syncShelf(entries: BookEntry[], state: SceneState): Promise<void>
       ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).map?.dispose();
     }
   }
-  disposeTextures();
+  // Dispose old bookcase geometry before clearing
+  if (state.bookcaseGroup) {
+    state.bookcaseGroup.traverse(obj => {
+      if (obj instanceof THREE.Mesh) obj.geometry.dispose();
+    });
+    state.bookcaseGroup = null;
+  }
   state.shelfGroup.clear();
   state.hoveredMesh = null;
   state.cameraAnim = null;
@@ -177,6 +254,8 @@ async function syncShelf(entries: BookEntry[], state: SceneState): Promise<void>
     entries.map((entry, i) => buildBookMesh(entry, state.shelfPositions[i], state.bookGeometry))
   );
   meshes.forEach(m => state.shelfGroup.add(m));
+  state.bookcaseGroup = buildBookcase(entries, state.shelfPositions);
+  state.shelfGroup.add(state.bookcaseGroup);
 }
 
 // --- Camera / book animation ---
@@ -350,12 +429,19 @@ function handleRaycasting(rc: RenderContext, state: SceneState): void {
 }
 
 function handleShelfAnimations(state: SceneState): void {
+  const halfH = BOOK_HEIGHT / 2;
   for (const child of state.shelfGroup.children) {
-    const mesh  = child as THREE.Mesh;
-    const target = mesh === state.hoveredMesh ? qHovered : qInitial;
-    if (mesh.quaternion.angleTo(target) > 0.005) {
-      mesh.quaternion.rotateTowards(target, 0.1);
+    if (!(child instanceof THREE.Mesh)) continue;
+    const target = child === state.hoveredMesh ? qHovered : qInitial;
+    if (child.quaternion.angleTo(target) > 0.005) {
+      child.quaternion.rotateTowards(target, 0.1);
     }
+    // Keep the book's bottom fixed: arc the center around the base pivot
+    const sp = child.userData.shelfPos as THREE.Vector3 | undefined;
+    if (!sp) continue;
+    const theta = child.quaternion.angleTo(qInitial);
+    child.position.y = sp.y - halfH * (1 - Math.cos(theta));
+    child.position.z = sp.z + halfH * Math.sin(theta);
   }
 }
 
@@ -439,6 +525,7 @@ export async function threeMain(): Promise<void> {
   const state: SceneState = {
     bookGeometry,
     shelfGroup,
+    bookcaseGroup:   null,
     shelfPositions:  [],
     hoveredMesh:     null,
     viewState:       'shelf',
@@ -459,7 +546,15 @@ export async function threeMain(): Promise<void> {
     b => !b.description && /^\d{10,13}$/.test(b.id)
   );
   if (unenriched.length > 0) {
-    enrichBooks(unenriched.map(b => b.id)).then(patches => patchBooks(patches));
+    enrichBooks(unenriched.map(b => b.id)).then(patches => {
+      // Invalidate textures only for books that gained a description — their
+      // back-cover text needs to be redrawn. Everything else stays cached.
+      const toInvalidate = [...patches.entries()]
+        .filter(([, p]) => p.description)
+        .map(([id]) => id);
+      if (toInvalidate.length > 0) invalidateBookTextures(toInvalidate);
+      patchBooks(patches);
+    });
   }
 
   renderer.setAnimationLoop(() => {
