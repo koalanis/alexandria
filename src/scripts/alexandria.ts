@@ -118,6 +118,33 @@ function windowed(t: number, start: number, end: number): number {
 
 // --- Shelf building ---
 
+// Billboard spine label — separate canvas plane child to avoid lossy texture scaling.
+// rotation.y = -π/2 orients the plane normal toward world +Z (viewer).
+// scale.y = 1/parentScale cancels the parent's Y stretch so text size is constant.
+function makeSpineLabel(entry: BookEntry, parentScale: number): THREE.Mesh {
+  const canvas = document.createElement('canvas');
+  canvas.width  = 512;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle    = 'rgba(255,255,255,0.90)';
+  ctx.font         = 'bold 22px Georgia, serif';
+  ctx.fillText(entry.title, 256, 32, 492);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+
+  const geo = new THREE.PlaneGeometry(5.842, 1.481);
+  const mat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false });
+  const label = new THREE.Mesh(geo, mat);
+  label.rotation.y = -Math.PI / 2;
+  label.rotation.z = Math.PI;
+  label.position.x = -1.975;
+  label.scale.set(1, 1 / parentScale, 1);
+  return label;
+}
+
 async function buildBookMesh(
   entry: BookEntry,
   position: THREE.Vector3,
@@ -127,13 +154,20 @@ async function buildBookMesh(
   const mesh = new THREE.Mesh(geometry, makeBookMaterial(texture));
   mesh.position.copy(position);
   mesh.quaternion.copy(qInitial);
-  mesh.scale.set(1, spineScale(entry.pages), 1);
+  const scale = spineScale(entry.pages);
+  mesh.scale.set(1, scale, 1);
   mesh.userData.bookId = entry.id;
+  mesh.add(makeSpineLabel(entry, scale));
   return mesh;
 }
 
 async function syncShelf(entries: BookEntry[], state: SceneState): Promise<void> {
   if (state.viewState === 'carousel') exitCarousel(state);
+  for (const bookMesh of state.shelfGroup.children) {
+    for (const child of bookMesh.children) {
+      ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).map?.dispose();
+    }
+  }
   disposeTextures();
   state.shelfGroup.clear();
   state.hoveredMesh = null;
@@ -158,7 +192,7 @@ function startAnim(
   toMeshQuat?: THREE.Quaternion,
   meshPosWindow?: [number, number],
   meshQuatWindow?: [number, number],
-  onDone?: () => void
+  onDone?: () => void,
 ): void {
   state.cameraAnim = {
     fromCamPos:  rc.camera.position.clone(),
@@ -266,22 +300,31 @@ function navigateCarousel(dir: -1 | 1, rc: RenderContext, state: SceneState): vo
   const next  = state.carouselIndex + dir;
   if (next < 0 || next >= books.length) return;
 
-  const old = getBookMesh(state, state.carouselIndex);
-  if (old) {
-    old.position.copy(state.shelfPositions[state.carouselIndex]);
-    old.quaternion.copy(qInitial);
-  }
+  const old         = getBookMesh(state, state.carouselIndex);
+  const oldShelfPos = state.shelfPositions[state.carouselIndex];
+  const holdCamPos  = rc.camera.position.clone();
+  const holdCamQuat = rc.camera.quaternion.clone();
 
-  state.carouselIndex = next;
-  updateCarousel(books[next], next, books.length);
-
-  const mesh = getBookMesh(state, next);
-  const pos  = state.shelfPositions[next];
+  // Phase 1: old book returns to shelf, camera holds
   startAnim(
     rc, state,
-    carouselCamPos(pos), qCameraForward,
+    holdCamPos, holdCamQuat,
     T_NAV,
-    mesh, bookPoppedPos(pos), qFacing,
+    old, oldShelfPos, qInitial,
+    undefined, undefined,
+    () => {
+      // Phase 2: new book comes forward, camera pans to it
+      state.carouselIndex = next;
+      updateCarousel(books[next], next, books.length);
+      const mesh = getBookMesh(state, next);
+      const pos  = state.shelfPositions[next];
+      startAnim(
+        rc, state,
+        carouselCamPos(pos), qCameraForward,
+        T_NAV,
+        mesh, bookPoppedPos(pos), qFacing,
+      );
+    }
   );
 }
 
