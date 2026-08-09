@@ -1,13 +1,5 @@
 import { randomInt, randomRGB, rgb } from "./utils";
 
-const COLOR_LIST = ["yellow", "blue", "red", "pink", "cyan", "green", "purple"]
-
-function randomPick<T>(ele: T[]): T | undefined {
-  const idx = Math.floor(Math.random() * ele.length);
-  if (ele.length == 0) return undefined;
-  return ele[idx];
-}
-
 export function main(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
   const $ = new Canvas(canvas, ctx);
 
@@ -45,7 +37,7 @@ class Canvas {
   shelves: Book[][];
 
 
-  constructor(canvas: HTMLCanvasElement, ctx: Canvas2D) {
+  constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
     this.canvas = canvas;
     this.ctx = ctx;
     this.width = this.canvas.width;
@@ -55,40 +47,31 @@ class Canvas {
     this.offset = 20;
     this.gap = 100
     this.bookWidth = 20;
-    this.shelves = new Array<Array<Book>>(this.NUM_OF_SHELVES - 1);
-
-    console.log(this.width, this.height)
+    // Pre-fill so shelves that draw no books are empty arrays, not holes.
+    this.shelves = Array.from({ length: this.NUM_OF_SHELVES - 1 }, () => []);
   }
 
   drawBackground() {
     this.ctx.fillStyle = "gray";
-    this.ctx.fillRect(0, 0, 1000, 1000);
+    this.ctx.fillRect(0, 0, this.width, this.height);
   }
 
   drawShelves() {
     this.ctx.fillStyle = rgb([50, 50, 50]);
 
-    const length = 1000;
     let off = this.offset
     for (let i = 0; i < this.NUM_OF_SHELVES; i++) {
-      this.ctx.fillRect(0, off, length, this.shelfWidth);
+      this.ctx.fillRect(0, off, this.width, this.shelfWidth);
       off += (this.shelfWidth + this.gap);
     }
   }
 
 
   generateRandomBooks() {
-
     for (let i = 0; i < this.NUM_OF_BOOKS; i++) {
       const randomShelf = randomInt(this.NUM_OF_SHELVES - 1);
-      let randColor = randomRGB();
-      if (this.shelves[randomShelf] === undefined) this.shelves[randomShelf] = [];
-      this.shelves[randomShelf].push({ color: randColor });
+      this.shelves[randomShelf].push({ color: randomRGB() });
     }
-
-    console.log(this.shelves)
-
-
   }
 
   drawBooks() {

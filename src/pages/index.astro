@@ -1,15 +1,33 @@
 ---
 import Layout from "../layouts/Layout.astro";
-
 ---
 
-<Layout>
-	<!-- <canvas id="canvas" width="800", height="600">
-	</canvas> -->
-</Layout>
-<script>
-	import {threeMain} from '../scripts/alexandria';
-	import {main} from '../scripts/2d';
+<Layout />
 
-	await threeMain()
-	</script>
+<script>
+	import { threeMain } from "../scripts/alexandria";
+
+	// A failed model/texture load otherwise just leaves a blank page and an
+	// unhandled rejection in the console.
+	threeMain().catch((error) => {
+		console.error("Alexandria failed to start:", error);
+		const notice = document.createElement("p");
+		notice.className = "startup-error";
+		notice.textContent = "Could not load the library. See the console for details.";
+		document.body.appendChild(notice);
+	});
+</script>
+
+<!-- Scoped styles are not applied to elements created at runtime, so this
+     rule has to be global. -->
+<style is:global>
+	.startup-error {
+		position: fixed;
+		inset: 0;
+		display: grid;
+		place-content: center;
+		margin: 0;
+		color: #e0ccfa;
+		font-family: system-ui, sans-serif;
+	}
+</style>
