@@ -45,7 +45,7 @@ class Canvas {
   shelves: Book[][];
 
 
-  constructor(canvas: HTMLCanvasElement, ctx: Canvas2D) {
+  constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
     this.canvas = canvas;
     this.ctx = ctx;
     this.width = this.canvas.width;

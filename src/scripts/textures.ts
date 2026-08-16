@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { BookEntry } from './library';
 import { textureConfig, FAKE_DESCRIPTION } from './config';
+import { loadImage, fetchBookCover } from './covers';
 
 const TEX = 512;
 
@@ -15,9 +16,26 @@ const SPINE  = { x: 206, y:  9, w:  76, h: 298 } as const;
 const BACK   = { x:   6, y:  9, w: 200, h: 298 } as const;
 
 const PALETTE = [
-  '#5C3D2E', '#2E4057', '#048A81', '#8B4513',
-  '#6B4226', '#1B4332', '#3D2B1F', '#2C3E50',
-  '#7B3F00', '#1A3A4A',
+  '#8B1A1A', // deep crimson
+  '#1B3A6B', // navy
+  '#2C5F2E', // forest green
+  '#7A3B1E', // terracotta
+  '#4A3728', // espresso
+  '#1A4A4A', // dark teal
+  '#5B2333', // burgundy
+  '#2E3D5C', // slate blue
+  '#4A5A2E', // olive
+  '#6B2D2D', // brick red
+  '#2B4A3F', // deep sage
+  '#3D2B5C', // aubergine
+  '#5C3A1A', // amber brown
+  '#1E3A5F', // cobalt
+  '#4E2020', // oxblood
+  '#1A3D2B', // hunter green
+  '#5C4A1A', // dark gold
+  '#2A1F3D', // midnight
+  '#6B3D1A', // rust
+  '#1F3B4A', // steel blue
 ];
 
 function hash(s: string): number {
@@ -160,25 +178,6 @@ function sampleAverageColor(img: HTMLImageElement): [number, number, number] | n
   }
 }
 
-async function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    const timer = setTimeout(() => reject(new Error('timeout')), 6000);
-    const done = (fn: () => void) => { clearTimeout(timer); fn(); };
-    img.onload = () => done(() => {
-      // OpenLibrary returns a tiny placeholder when no cover exists.
-      // Treat anything under 50px as "no cover".
-      if (img.naturalWidth < 50 || img.naturalHeight < 50) reject(new Error('placeholder'));
-      else resolve(img);
-    });
-    img.onerror = (e) => done(() => reject(e));
-    img.src = url;
-  });
-}
-
-// --- Config ---
-
 // --- Base texture (page edges / mesh detail from the original OBJ texture) ---
 
 let baseImg: HTMLImageElement | null = null;
@@ -199,11 +198,7 @@ export async function getBookTexture(entry: BookEntry): Promise<THREE.Texture> {
 
   const baseColor = textureConfig.colorize ? pickColor(entry.id) : textureConfig.defaultColor;
 
-  // Load cover image up front so its average color can tint the base texture.
-  let coverImg: HTMLImageElement | null = null;
-  if (entry.coverUrl) {
-    try { coverImg = await loadImage(entry.coverUrl); } catch { /* no cover */ }
-  }
+  const coverImg = await fetchBookCover(entry);
 
   const canvas = document.createElement('canvas');
   canvas.width = TEX;

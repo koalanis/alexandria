@@ -6,10 +6,18 @@ export const sceneConfig = {
   backgroundColor: '#f5f0e8',
 };
 
+// --- Covers ---
+
+export const coverConfig = {
+  // 'url'      — fetch from entry.coverUrl (set by whichever API populated the book)
+  // 'disabled' — skip cover images entirely (fallback art always used)
+  provider: 'url' as 'url' | 'disabled',
+};
+
 // --- Texture ---
 
 export const textureConfig = {
-  colorize: false,
+  colorize: true,
   defaultColor: '#3D2B1F',
   fakeDescriptions: false,
 };

@@ -12,20 +12,21 @@ import { showCarousel, updateCarousel, hideCarousel } from './carousel';
 // --- Constants ---
 
 const BOOKS_PER_ROW  = 20;
-const SPACING_Y      = 5.88;
-const SPINE_HALF     = 0.741;  // half of OBJ Y range (1.481 total) at scale=1
-const SHELF_GAP      = 0.05;   // world-unit gap between adjacent books
-const CAROUSEL_CAM_Z = 18;  // camera Z in carousel (shelf is at Z=0)
-const BOOK_POP_Z     = 3;   // how far the active book steps forward
-const T_ENTER        = 0.6; // transition duration seconds (enter/exit)
-const T_NAV          = 0.3; // transition duration seconds (prev/next)
+const SHELF_DROP     = 0.25;  // headroom above each book; books sit on the board below (no gap below)
+const SPACING_Y      = 6.56;  // BOOK_HEIGHT + 2*SHELF_DROP + SHELF_T  (board geometry uses same DROP)
+const SPINE_HALF     = 0.741; // half of OBJ Y range (1.481 total) at scale=1
+const SHELF_GAP      = 0.05;  // world-unit gap between adjacent books
+const CAROUSEL_CAM_Z = 18;   // camera Z in carousel (shelf is at Z=0)
+const BOOK_POP_Z     = 3;    // how far the active book steps forward
+const T_ENTER        = 0.6;  // transition duration seconds (enter/exit)
+const T_NAV          = 0.3;  // transition duration seconds (prev/next)
 
-// Approximate world-space dimensions of the book mesh at qInitial.
-// Tweak if shelf boards / back panel look misaligned.
-const BOOK_HEIGHT = 5.5;   // world Y, bottom to top of a standing book
-const BOOK_DEPTH  = 3.2;   // world Z, spine face to back cover
+// Exact world-space dimensions from OBJ bounding box + qInitial rotation matrix.
+const BOOK_HEIGHT   = 5.84;  // world Y — OBJ Z range 5.842
+const BOOK_DEPTH    = 3.91;  // world Z — OBJ X range 3.908
+const BOOK_Z_OFFSET = -1.97; // spine face lands at Z=0 (OBJ X_min=-1.97 → world +Z after rotation)
 
-const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.9, metalness: 0.0 });
+const woodMat = new THREE.MeshStandardMaterial({ color: 0x3d1f0a, roughness: 0.75, metalness: 0.05 });
 
 // --- Quaternions ---
 
@@ -74,7 +75,8 @@ type RenderContext = {
   scene:    THREE.Scene;
   controls: THREE.Controls<any>;
   raycaster: THREE.Raycaster;
-  pointer:  THREE.Vector2;
+  pointer:   THREE.Vector2;
+  heldKeys:  Set<string>;
 };
 
 type SceneState = {
@@ -98,7 +100,7 @@ function computeShelfPositions(entries: BookEntry[]): THREE.Vector3[] {
   for (const entry of entries) {
     if (col >= BOOKS_PER_ROW) { col = 0; row++; x = 0; }
     const halfW = SPINE_HALF * spineScale(entry.pages);
-    positions.push(new THREE.Vector3(x + halfW, -row * SPACING_Y, 0));
+    positions.push(new THREE.Vector3(x + halfW, -row * SPACING_Y - SHELF_DROP, BOOK_Z_OFFSET));
     x += halfW * 2 + SHELF_GAP;
     col++;
   }
@@ -131,17 +133,21 @@ function windowed(t: number, start: number, end: number): number {
 // scale.y = 1/parentScale cancels the parent's Y stretch so text size is constant.
 function makeSpineLabel(entry: BookEntry, parentScale: number): THREE.Mesh {
   const canvas = document.createElement('canvas');
-  canvas.width  = 512;
-  canvas.height = 64;
+  canvas.width  = 2048;
+  canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle    = 'rgba(255,255,255,0.90)';
-  ctx.font         = 'bold 22px Georgia, serif';
-  ctx.fillText(entry.title, 256, 32, 492);
+  ctx.letterSpacing = '6px';
+  ctx.font          = '700 88px Consolas, "Courier New", monospace';
+  ctx.fillText(entry.title, 1024, 128, 1968);
 
   const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.colorSpace    = THREE.SRGBColorSpace;
+  texture.generateMipmaps = false;
+  texture.minFilter     = THREE.LinearFilter;
+  texture.magFilter     = THREE.LinearFilter;
 
   const geo = new THREE.PlaneGeometry(5.842, 1.481);
   const mat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false });
@@ -161,8 +167,8 @@ function buildBookcase(
   const SHELF_T = 0.22;   // horizontal board thickness
   const SIDE_T  = 0.28;   // vertical side panel thickness
   const BACK_T  = 0.12;   // back panel thickness
-  const LIP     = 0.15;   // how much shelf protrudes in front of spine face
-  const DROP    = 0.30;   // gap between estimated book bottom and shelf top surface
+  const LIP     = 0.40;   // how much shelf protrudes in front of spine face (spine is at Z=0)
+  const DROP    = SHELF_DROP;
 
   const numRows = Math.ceil(entries.length / BOOKS_PER_ROW);
 
@@ -410,16 +416,23 @@ function navigateCarousel(dir: -1 | 1, rc: RenderContext, state: SceneState): vo
 // --- Scene setup ---
 
 function setupLights(scene: THREE.Scene): void {
-  const positions: [number, number, number][] = [
-    [4, 10, 0], [-4, 10, 0], [0, 10, 4], [0, 10, -4],
-    [4, -10, 0], [-4, -10, 0], [0, -10, 4], [0, -10, -4],
-  ];
-  for (const [x, y, z] of positions) {
-    const light = new THREE.PointLight(0xffffff, 1, 0, 0);
-    light.position.set(x, y, z);
-    scene.add(light);
-  }
-  scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+  // Warm ambient to fill shadows without washing out colors
+  scene.add(new THREE.AmbientLight(0xfff4e0, 0.55));
+
+  // Key light: warm overhead-front, casts strong shadows down the spines
+  const key = new THREE.DirectionalLight(0xfff8e8, 2.2);
+  key.position.set(10, 30, 40);
+  scene.add(key);
+
+  // Fill light: cool-neutral from the left, softens the opposite side
+  const fill = new THREE.DirectionalLight(0xd0e8ff, 0.6);
+  fill.position.set(-25, 10, 15);
+  scene.add(fill);
+
+  // Rim/back light: gives depth to shelf boards and back panel
+  const rim = new THREE.DirectionalLight(0xffe0b0, 0.4);
+  rim.position.set(0, -20, -10);
+  scene.add(rim);
 }
 
 function handleRaycasting(rc: RenderContext, state: SceneState): void {
@@ -445,6 +458,14 @@ function handleShelfAnimations(state: SceneState): void {
   }
 }
 
+function handleCameraRotation(rc: RenderContext, delta: number): void {
+  const dir = (rc.heldKeys.has('KeyQ') ? 1 : 0) - (rc.heldKeys.has('KeyE') ? 1 : 0);
+  if (dir === 0) return;
+  // Adjust FirstPersonControls' internal lon so its own update() applies the yaw.
+  // Modifying camera.quaternion directly gets overwritten by controls.update() every frame.
+  (rc.controls as any)._lon -= dir * 60 * delta;
+}
+
 function registerEvents(rc: RenderContext, state: SceneState): void {
   window.addEventListener('pointermove', (e: PointerEvent) => {
     rc.pointer.x =  (e.clientX / window.innerWidth)  * 2 - 1;
@@ -461,10 +482,15 @@ function registerEvents(rc: RenderContext, state: SceneState): void {
   });
 
   window.addEventListener('keydown', (e: KeyboardEvent) => {
+    rc.heldKeys.add(e.code);
     if (state.viewState !== 'carousel') return;
     if (e.key === 'ArrowLeft')  navigateCarousel(-1, rc, state);
     if (e.key === 'ArrowRight') navigateCarousel(1,  rc, state);
     if (e.key === 'Escape')     exitCarousel(state, rc);
+  });
+
+  window.addEventListener('keyup', (e: KeyboardEvent) => {
+    rc.heldKeys.delete(e.code);
   });
 }
 
@@ -501,18 +527,19 @@ export async function threeMain(): Promise<void> {
   document.body.appendChild(renderer.domElement);
 
   const scene  = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  camera.position.set(20, 0, 50);
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.set(15, -4, 40);
 
   const clock    = new THREE.Clock();
   const controls = new FirstPersonControls(camera, renderer.domElement);
   controls.activeLook  = false;
-  controls.movementSpeed = 10;
+  controls.movementSpeed = 20;
 
   const rc: RenderContext = {
     renderer, camera, clock, scene, controls,
     raycaster: new THREE.Raycaster(),
     pointer:   new THREE.Vector2(),
+    heldKeys:  new Set<string>(),
   };
 
   setupLights(scene);
@@ -563,6 +590,7 @@ export async function threeMain(): Promise<void> {
     if (state.cameraAnim) {
       stepAnim(rc, state, delta);
     } else if (state.viewState === 'shelf') {
+      handleCameraRotation(rc, delta);
       rc.controls.update(delta);
       handleRaycasting(rc, state);
       handleShelfAnimations(state);
