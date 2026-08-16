@@ -1,16 +1,67 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import { sceneConfig } from "../scripts/config";
 
 ---
 
 <Layout>
-	<!-- <canvas id="canvas" width="800", height="600">
-	</canvas> -->
+	<div id="loading-screen" style={`background: ${sceneConfig.backgroundColor};`}>
+		<div class="loading-spinner"></div>
+		<p id="loading-text">Loading your library&hellip;</p>
+	</div>
 </Layout>
 <script>
 	import { threeMain } from '../scripts/alexandria';
 	import { initWidget } from '../scripts/widget';
 
-	await threeMain();
-	initWidget();
+	const loadingScreen = document.getElementById('loading-screen');
+	const loadingText   = document.getElementById('loading-text');
+
+	try {
+		await threeMain();
+		initWidget();
+		loadingScreen?.classList.add('loading-screen--hidden');
+	} catch (err) {
+		console.error(err);
+		if (loadingText) loadingText.textContent = 'Something went wrong loading the library. Try refreshing.';
+		loadingScreen?.classList.add('loading-screen--error');
+	}
 </script>
+<style>
+	#loading-screen {
+		position: fixed;
+		inset: 0;
+		z-index: 100;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1.25rem;
+		transition: opacity 0.4s ease;
+	}
+	#loading-screen.loading-screen--hidden {
+		opacity: 0;
+		pointer-events: none;
+	}
+	#loading-screen.loading-screen--error .loading-spinner {
+		animation: none;
+		border-top-color: #a33;
+	}
+	.loading-spinner {
+		width: 48px;
+		height: 48px;
+		border: 4px solid #d8cdbb;
+		border-top-color: #3d1f0a;
+		border-radius: 50%;
+		animation: loading-spin 0.9s linear infinite;
+	}
+	#loading-text {
+		font-family: Georgia, serif;
+		color: #3d1f0a;
+		font-size: 1rem;
+		letter-spacing: 0.02em;
+	}
+	@keyframes loading-spin {
+		to { transform: rotate(360deg); }
+	}
+</style>
